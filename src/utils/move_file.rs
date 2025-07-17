@@ -10,10 +10,28 @@ pub fn move_file(from: PathBuf, to: String) {
 
   if from.is_dir() {
     let mut options = dir::CopyOptions::new();
-    options.copy_inside = true;
-    dir::move_dir(&from, &to, &options).expect("unable to move");
+    options.copy_inside = true;  // flattens contents into `to`
+    dir::move_dir(&from, &to, &options)
+      .map_err(|e| {
+        format!(
+          "Failed to move directory from '{}' into '{}': {}",
+          from.display(),
+          to.display(),
+          e
+        )
+      })
+      .expect("directory move failed");
   } else {
-    fs::rename(&from, &to).expect("unable to move");
+    fs::rename(&from, &to)
+      .map_err(|e| {
+        format!(
+          "Failed to rename file from '{}' to '{}': {}",
+          from.display(),
+          to.display(),
+          e
+        )
+      })
+      .expect("file rename failed");
   }
 
   println!("{}", from.to_str().unwrap());
