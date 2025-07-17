@@ -7,4 +7,5 @@ edition = "2018"
 
 [dependencies]
 directories = "4.0.1"
+fs_extra = "1.3.0"
 
