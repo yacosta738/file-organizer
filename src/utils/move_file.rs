@@ -1,41 +1,43 @@
+use anyhow::{Context, Result};
 use fs_extra::dir;
 use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 
-pub fn move_file(from: PathBuf, to: String) {
-  let file_name = from.file_name().unwrap();
-  let file_name = file_name.to_os_string();
-  let file_name = file_name.to_str().unwrap();
-  let to = format!("{to}/{file_name}");
+pub fn move_file<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q, dry_run: bool) -> Result<()> {
+  let from = from.as_ref();
+  let to = to.as_ref();
 
+  let file_name = from.file_name()
+    .with_context(|| format!("Could not get filename from {}", from.display()))?;
+  let to_full_path = to.join(file_name);
+
+  if dry_run {
+    println!("[DRY RUN] Would move {} to {}", from.display(), to_full_path.display());
+    return Ok(());
+  }
   if from.is_dir() {
     let mut options = dir::CopyOptions::new();
     options.copy_inside = true;  // flattens contents into `to`
-    dir::move_dir(&from, &to, &options)
+    dir::move_dir(from, &to_full_path, &options)
       .map_err(|e| {
-        format!(
+        anyhow::anyhow!(
           "Failed to move directory from '{}' into '{}': {}",
           from.display(),
-          to.display(),
+          to_full_path.display(),
           e
         )
-      })
-      .expect("directory move failed");
+      })?;
   } else {
-    fs::rename(&from, &to)
-      .map_err(|e| {
+    fs::rename(from, &to_full_path)
+      .with_context(|| {
         format!(
-          "Failed to rename file from '{}' to '{}': {}",
+          "Failed to rename file from '{}' to '{}'",
           from.display(),
-          to.display(),
-          e
+          to_full_path.display()
         )
-      })
-      .expect("file rename failed");
+      })?;
   }
 
-  println!("{}", from.to_str().unwrap());
-  println!("moved to");
-  println!("{to}");
-  println!();
+  println!("{} moved to {}", from.display(), to_full_path.display());
+  Ok(())
 }

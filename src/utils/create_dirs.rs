@@ -1,18 +1,24 @@
 use crate::globals;
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
-pub fn create_dirs(dir: &str) {
+pub fn create_dirs<P: AsRef<Path>>(dir: P, dry_run: bool) -> Result<()> {
+  let dir = dir.as_ref();
   for value in globals::DIRS {
-    let path = format!("{dir}/{value}");
-    let path = Path::new(&path);
+    let path = dir.join(value);
 
+    if dry_run && !path.exists() {
+      println!("[DRY RUN] Would create {} directory at {}", value, path.display());
+      continue;
+    }
     if !path.exists() {
-      let error_msg = format!("unable to create {value} directory");
-      fs::create_dir(path).unwrap_or_else(|_| panic!("{}", error_msg));
-      println!("{value} directory created");
+      fs::create_dir(&path)
+        .with_context(|| format!("Unable to create {} directory at {}", value, path.display()))?;
+      println!("{} directory created", value);
     }
   }
+  Ok(())
 }
 
 #[cfg(test)]
@@ -21,21 +27,19 @@ mod test {
   use std::fs;
   use std::path::Path;
 
-  // create a dir and then call the create_dirs function, check if exist each directory and then
-  // remove all the dirs.
   #[test]
   fn create_directories() {
-    let main_dir = "./create_dirs";
-    fs::create_dir(&main_dir).expect("unable to create");
-    create_dirs(&main_dir);
+    let main_dir = "./create_dirs_test";
+    fs::create_dir_all(main_dir).expect("unable to create");
+    create_dirs(main_dir, false).expect("failed to create dirs");
 
-    assert!(Path::new("./create_dirs/Text").exists());
-    assert!(Path::new("./create_dirs/Image").exists());
-    assert!(Path::new("./create_dirs/Audio").exists());
-    assert!(Path::new("./create_dirs/Video").exists());
-    assert!(Path::new("./create_dirs/Compressed").exists());
-    assert!(Path::new("./create_dirs/Executable").exists());
+    assert!(Path::new("./create_dirs_test/Text").exists());
+    assert!(Path::new("./create_dirs_test/Image").exists());
+    assert!(Path::new("./create_dirs_test/Audio").exists());
+    assert!(Path::new("./create_dirs_test/Video").exists());
+    assert!(Path::new("./create_dirs_test/Compressed").exists());
+    assert!(Path::new("./create_dirs_test/Executable").exists());
 
-    fs::remove_dir_all("./create_dirs").expect("unable to remove");
+    fs::remove_dir_all(main_dir).expect("unable to remove");
   }
 }
