@@ -1,15 +1,22 @@
 use crate::{globals, utils};
+use anyhow::{Context, Result};
 use std::env::consts;
 use std::fs;
+use std::path::Path;
 
-pub fn organize(path: &str) {
-  let main_dir = fs::read_dir(path).expect("unable to open");
+pub fn organize<P: AsRef<Path>>(path: P) -> Result<()> {
+  let path = path.as_ref();
+  let main_dir = fs::read_dir(path).context("unable to open directory for organization")?;
   let map = utils::files_extension();
   let dirs = globals::DIRS.to_vec();
 
   for entry in main_dir {
-    let entry = entry.unwrap().path();
-    let name = entry.file_name().unwrap().to_str().unwrap();
+    let entry = entry.context("unable to read directory entry")?.path();
+    let name = entry
+      .file_name()
+      .context("unable to get file name")?
+      .to_str()
+      .context("unable to convert file name to string")?;
     let ignore_dir = dirs.contains(&name);
 
     if ignore_dir {
@@ -18,21 +25,17 @@ pub fn organize(path: &str) {
 
     let ext = entry.extension();
 
-    if ext.is_some() {
-      let dir = map.get(ext.unwrap().to_str().unwrap());
-
-      if dir.is_some() {
-        let dir = format!("{}/{}", path, dir.unwrap());
-        utils::move_file(entry, dir);
-      } else {
-        let dir = format!("{}/{}", path, globals::DIRS[6]);
-        utils::move_file(entry, dir);
-      }
+    if let Some(extension) = ext {
+      let ext_str = extension.to_str().context("unable to convert extension to string")?;
+      let dir_name = map.get(ext_str).copied().unwrap_or(globals::DIRS[6]);
+      let dest_dir = path.join(dir_name);
+      utils::move_file(entry, dest_dir)?;
     } else if consts::OS != "windows" {
-      let dir = format!("{}/{}", path, globals::DIRS[6]);
-      utils::move_file(entry, dir);
+      let dest_dir = path.join(globals::DIRS[6]);
+      utils::move_file(entry, dest_dir)?;
     }
   }
+  Ok(())
 }
 
 #[cfg(test)]
@@ -47,8 +50,12 @@ mod test {
 
   #[test]
   fn organize_files() {
-    fs::create_dir(DIR).expect("unable to create dir");
-    utils::create_dirs(&DIR.to_string());
+    let path = Path::new(DIR);
+    if path.exists() {
+        fs::remove_dir_all(path).expect("unable to remove existing dir");
+    }
+    fs::create_dir(path).expect("unable to create dir");
+    utils::create_dirs(path).expect("unable to create subdirs");
 
     let files = vec![
       "foo.txt", "foo.png", "foo.mp3", "foo.mp4", "foo.zip", "foo.exe",
@@ -56,7 +63,7 @@ mod test {
     ];
 
     create_files(&files);
-    organize(DIR);
+    organize(path).expect("organize failed");
 
     let expect = vec![
       "Text/foo.txt",
@@ -69,20 +76,20 @@ mod test {
     ];
     assert_all(expect);
 
-    fs::remove_dir_all(DIR).expect("unable to remove");
+    fs::remove_dir_all(path).expect("unable to remove");
   }
 
-  fn create_files(files: &Vec<&str>) {
+  fn create_files(files: &[&str]) {
     for f in files {
-      let path = format!("{}/{}", DIR, f);
+      let path = Path::new(DIR).join(f);
       File::create(path).expect("unable to create file");
     }
   }
 
   fn assert_all(files: Vec<&str>) {
     for f in files {
-      let path = format!("{}/{}", DIR, f);
-      assert!(Path::new(&path).exists());
+      let path = Path::new(DIR).join(f);
+      assert!(path.exists());
     }
   }
 }
