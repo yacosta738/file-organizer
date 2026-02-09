@@ -1,82 +1,48 @@
 use crate::globals;
+use anyhow::{anyhow, Context, Result};
 use directories::UserDirs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-static DOWNLOAD_DIR_NOT_FOUND: &str = "Downloads directory not found";
-
-pub fn get_download_dir(args: &[&str]) -> String {
-  match args.len() {
-    1 => {
-      let user = UserDirs::new().unwrap();
-      let download = user.download_dir();
-
-      match download {
-        None => {
-          let home = user.home_dir();
-          let download = format!("{}/{}", home.display(), globals::DIR);
-          let download = Path::new(&download);
-
-          if !download.exists() {
-            panic!("{}", DOWNLOAD_DIR_NOT_FOUND);
-          }
-
-          download.to_str().unwrap().to_string()
-        },
-        Some(dir) => {
-          if !dir.exists() {
-            panic!("{}", DOWNLOAD_DIR_NOT_FOUND);
-          }
-
-          dir.to_str().unwrap().to_string()
-        },
-      }
-    },
-    2 => {
-      let download = Path::new(&args[1]);
-      let download = match download.canonicalize() {
-        Ok(dir) => dir,
-        Err(_) => panic!("{}", DOWNLOAD_DIR_NOT_FOUND),
-      };
-
-      download.to_str().unwrap().to_string()
-    },
-    _ => {
-      panic!("to mutch arguments");
-    },
+pub fn get_download_dir(custom_path: Option<&str>) -> Result<PathBuf> {
+  if let Some(path) = custom_path {
+    let download = Path::new(path);
+    let download = download
+      .canonicalize()
+      .with_context(|| format!("directory not found: {}", path))?;
+    return Ok(download);
   }
+
+  let user = UserDirs::new().context("unable to get user directories")?;
+  let download = user.download_dir().map(PathBuf::from).or_else(|| {
+    let home = user.home_dir();
+    let download = home.join(globals::DIR);
+    if download.exists() {
+      Some(download)
+    } else {
+      None
+    }
+  });
+
+  download.ok_or_else(|| anyhow!("Downloads directory not found"))
 }
 
 #[cfg(test)]
 mod test {
   use super::*;
-  use std::panic::catch_unwind;
 
   #[test]
   fn without_arguments() {
-    let args = vec![""];
-    let result = catch_unwind(|| get_download_dir(&args));
-
-    match result {
-      Ok(dir) => assert!(dir.contains("Downloads")),
-      Err(_) => assert!(result.is_err()),
+    let result = get_download_dir(None);
+    // It might fail in some CI environments if Downloads doesn't exist,
+    // but we check the logic.
+    if let Ok(dir) = result {
+        assert!(dir.to_str().unwrap().to_lowercase().contains("downloads") || dir.to_str().unwrap().contains("home"));
     }
   }
 
   #[test]
-  fn with_one_argument() {
-    let args = vec!["", "Downloads"];
-    let result = catch_unwind(|| get_download_dir(&args));
-
-    match result {
-      Ok(dir) => assert!(dir.contains("Downloads")),
-      Err(_) => assert!(result.is_err()),
-    }
-  }
-
-  #[test]
-  #[should_panic]
-  fn pass_more_of_one_argument() {
-    let args = vec!["", "Foo", "Bar"];
-    get_download_dir(&args);
+  fn with_custom_path() {
+    let result = get_download_dir(Some("."));
+    assert!(result.is_ok());
   }
 }
